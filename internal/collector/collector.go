@@ -74,7 +74,6 @@ type RdmaCollector struct {
 	netdevPrioCongDiscardDesc *prometheus.Desc
 	netdevPrioDiscardsDesc    *prometheus.Desc
 	netdevPrioECNMarkedDesc   *prometheus.Desc
-	netdevPrioBytesDesc       *prometheus.Desc
 	netdevDevOutOfBufferDesc  *prometheus.Desc
 	netdevRxOutOfBufferDesc   *prometheus.Desc
 	netdevRxDiscardsPhyDesc   *prometheus.Desc
@@ -607,12 +606,6 @@ func New(provider Provider, logger *slog.Logger, opts ...Option) *RdmaCollector 
 			[]string{"device", "port", "netdev", "priority"},
 			nil,
 		),
-		netdevPrioBytesDesc: prometheus.NewDesc(
-			"rdma_netdev_prio_bytes_total",
-			"Bytes received or transmitted on the physical port by L2 priority (0-7). Ethtool {rx,tx}_prio[p]_bytes; includes all traffic on that priority, not only RDMA.",
-			[]string{"device", "port", "netdev", "direction", "priority"},
-			nil,
-		),
 		netdevPrioCongDiscardDesc: prometheus.NewDesc(
 			"rdma_netdev_prio_cong_discard_total",
 			"Packets discarded due to per-host congestion. Ethtool rx_prio[p]_cong_discard.",
@@ -995,7 +988,6 @@ func (c *RdmaCollector) Describe(ch chan<- *prometheus.Desc) {
 		ch <- c.netdevPrioCongDiscardDesc
 		ch <- c.netdevPrioDiscardsDesc
 		ch <- c.netdevPrioECNMarkedDesc
-		ch <- c.netdevPrioBytesDesc
 		ch <- c.netdevDevOutOfBufferDesc
 		ch <- c.netdevRxOutOfBufferDesc
 		ch <- c.netdevRxDiscardsPhyDesc

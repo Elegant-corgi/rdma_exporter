@@ -85,10 +85,6 @@ High-performance computing clusters and low-latency trading platforms increasing
 The `cmd/rdma_exporter` package wires configuration, logging, and the HTTP server. The server exposes `/metrics`, `/healthz`, and optional `/readyz` endpoints. The `internal/collector` package implements `prometheus.Collector`, delegating sysfs retrieval to `internal/rdma`, optional hardware counters and QP dumps to separate `internal/rdmanl` sockets (NETLINK_RDMA), and PFC/netdev hardware stats to `internal/netdev`.
 
 ## 4. Data Flow
-
-ethtool 的 `{rx,tx}_prio[0-7]_bytes` 通过 `rdma_netdev_prio_bytes_total{device,port,netdev,direction,priority}`
-导出为累计字节 Counter，复用 Stats dump 和每 netdev 去重规则。该计数器按物理端口 L2 优先级统计全部流量，
-不限定 RDMA；字段缺失时省略，真实零值保留。Prometheus 使用 rate/irate 计算收发带宽，exporter 不增加后台采样。
 1. A scrape hits `/metrics`.
 2. The Prometheus handler invokes the registered `RdmaCollector`.
 3. `RdmaCollector.Collect` queries `internal/rdma.Provider` for:
