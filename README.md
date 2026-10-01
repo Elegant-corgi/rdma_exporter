@@ -76,6 +76,8 @@ For details on GitHub Actions status badges, see the [official documentation](ht
 
 ## Build
 
+Windows Git Bash 编译 Linux 二进制，请看 [make 编译与试跑手册](docs/build.md)。设置目标平台后可直接使用 `make build`；修改源码后使用 `make -B build` 强制重新编译。
+
 ```bash
 go build -o rdma_exporter .
 ```
