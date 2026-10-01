@@ -6,10 +6,8 @@ BINARY := rdma_exporter
 
 all: build
 
-build: $(BINARY)
-
-$(BINARY):
-	$(GO) build -o $@ .
+build:
+	$(GO) build -o $(BINARY) .
 
 test:
 	$(GO) test $(PKG)

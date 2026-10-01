@@ -21,21 +21,17 @@ file rdma_exporter
 
 `cygpath -m` 把 Git Bash 路径转换成 Windows Go 可识别的绝对路径。以上 export 只影响当前终端；新开终端需重新设置。
 `h100-node25` 是 x86_64，对应 `GOARCH=amd64`。`file` 应显示 `ELF 64-bit`、`x86-64`、`statically linked`。
-如果显示 `PE32`，则编译成了 Windows 程序，需要检查 GOOS 后强制重新构建。
+如果显示 `PE32`，则编译成了 Windows 程序，需要检查 GOOS 后再次执行 `make build`。
 
 生成文件在项目根目录，名为 `rdma_exporter`，没有 `.exe` 后缀，直接拷到 Linux 即可；不要在 Windows 上执行它。
 
-当前 Makefile 的二进制目标没有源码依赖列表：文件已经存在时，`make build` 会认为无需更新，即使源码发生变化。
-修改源码、切换架构或更换构建参数后，使用：
-
-```bash
-make -B build
-```
+`build` 是 phony 目标，每次 `make build` 都会调用 `go build`。
+修改源码、切换架构或更换构建参数后仍使用同一个命令，由 Go 自身的缓存处理增量编译。
 
 若需要 ARM64，在以上终端中执行：
 
 ```bash
-GOARCH=arm64 make -B build
+GOARCH=arm64 make build
 ```
 
 这会覆盖同名输出；应先保存上一架构的二进制。需要压缩包时可将当前产物打包到忽略的 bin 目录：
@@ -54,15 +50,14 @@ tar -czf bin/rdma_exporter-linux-amd64.tar.gz rdma_exporter
 ```bash
 export GOCACHE="$PWD/.gocache"
 export GOMODCACHE="$PWD/.gomodcache"
-CGO_ENABLED=0 make -B build
+CGO_ENABLED=0 make build
 ```
 
 ## make 命令说明与测试
 
 | 命令 | 作用 |
 | --- | --- |
-| `make` / `make all` / `make build` | 构建项目根目录的 rdma_exporter；输出已存在时可能跳过 |
-| `make -B build` | 强制重新构建 |
+| `make` / `make all` / `make build` | 每次调用 Go 构建项目根目录的 rdma_exporter，复用 Go 增量缓存 |
 | `make test` | 执行 `go test ./...` |
 | `make lint` | 执行 `go vet ./...`，不修改源码 |
 | `make fmt` | 使用 gofmt 修改 Go 源码格式 |
