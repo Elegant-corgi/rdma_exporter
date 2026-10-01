@@ -239,6 +239,29 @@ rate(rdma_roce_pfc_pause_duration_total[$interval]) / 1e6
 
 These families ship with `--collector.ethtool` (default on). Disable with `--no-collector.ethtool`. They are mlx5 netdev/device statistics correlated to an RDMA port via `netdev`; they are not RoCE-only.
 
+`rdma_netdev_prio_bytes_total{device,port,netdev,direction,priority}` 导出 ethtool 的
+`rx_prio[p]_bytes` / `tx_prio[p]_bytes` 累计字节数，priority 为 0–7，direction 为 `rx`（接收）或 `tx`（发送）。
+它统计物理端口该 L2 优先级的全部流量；priority 5 是否专用于 RDMA 取决于现场 QoS 配置。
+复用每次 scrape 的 ethtool 读取，同一 netdev 只导出一次；沿用已有 Ethernet、VF 和 ethtool 开关规则。
+驱动未提供的字段省略，真实零值正常导出。此项不受 vPort RDMA 的 SR-IOV/共享网卡省略条件限制。
+
+以下 `/metrics` 示例使用现场 priority 5 累计读数：
+
+```prometheus
+# HELP rdma_netdev_prio_bytes_total Bytes received or transmitted on the physical port by L2 priority (0-7). Ethtool {rx,tx}_prio[p]_bytes; includes all traffic on that priority, not only RDMA.
+# TYPE rdma_netdev_prio_bytes_total counter
+rdma_netdev_prio_bytes_total{device="mlx5_0",port="1",netdev="reth0",direction="rx",priority="5"} 67459853075894
+rdma_netdev_prio_bytes_total{device="mlx5_0",port="1",netdev="reth0",direction="tx",priority="5"} 67461800120078
+```
+
+Grafana 查询 priority 5 的收发带宽（Mbps；用 instance 筛选目标节点，图例使用 `{{netdev}} {{direction}}`）：
+
+```promql
+irate(rdma_netdev_prio_bytes_total{netdev="reth0",priority="5"}[$__rate_interval]) * 8 / 1e6
+```
+
+带宽刷新粒度取决于 Prometheus scrape 间隔；趋势及告警使用 `rate`。不需要运行持续轮询的 `mlnx_perf`。
+
 - Buffer/drop: `rdma_netdev_prio_buf_discard_total`, `rdma_netdev_prio_cong_discard_total`, `rdma_netdev_prio_discards_total`, `rdma_netdev_prio_ecn_marked_total`, `rdma_netdev_dev_out_of_buffer_total`, `rdma_netdev_rx_out_of_buffer_total`, `rdma_netdev_rx_discards_phy_total`. Distinct from the sysfs QP WQE counter `rdma_out_of_buffer_total`.
 - PCIe: `rdma_pcie_outbound_stalled_percent` is a **gauge** of the last 1 second (kernel 0–100) and can miss stalls shorter than the scrape interval. Alert on `rate(rdma_pcie_outbound_stalled_seconds_total[$interval])`, the fraction of time stall exceeded 30%. Also `rdma_pcie_outbound_buffer_overflow_total` and `rdma_pcie_signal_integrity_total`.
 - PHY/FEC: `rdma_phy_rx_corrected_bits_total`, `rdma_phy_rx_pcs_symbol_err_total`, `rdma_phy_rx_bits_total`, `rdma_phy_rx_err_lane_total`, `rdma_phy_rx_crc_errors_total`, `rdma_phy_link_down_events_total`.
