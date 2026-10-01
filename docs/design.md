@@ -2,6 +2,12 @@
 
 This document covers the sysfs-based `rdma_exporter`.
 
+按优先级端口流量复用现有 ethtool Stats 快照：仅匹配 `^(rx|tx)_prio([0-7])_(bytes|packets)$`，
+分别导出 Counter `rdma_netdev_prio_bytes_total`、`rdma_netdev_prio_packets_total`，标签为
+`device,port,netdev,direction,priority`。遵守现有 Ethernet/非 PCI VF 门控、netdev 缓存和硬件指标去重，
+不新增 IO 或依赖，不受 vport 专用资格检查影响。缺失字段省略，零值保留。
+此为物理端口按 L2 优先级的 Ethernet/RoCE 流量，不是硬件队列或 RDMA/PFC 专属计数器。
+
 ## RDMA 运维元数据扩展
 
 `internal/rdma.Provider.Devices(ctx)` 保持原签名，设备快照新增固件和驱动模块版本、关联网络接口及可选 MTU，端口新增完整有效 GID 列表。

@@ -74,6 +74,8 @@ type RdmaCollector struct {
 	netdevPrioCongDiscardDesc *prometheus.Desc
 	netdevPrioDiscardsDesc    *prometheus.Desc
 	netdevPrioECNMarkedDesc   *prometheus.Desc
+	netdevPrioBytesDesc       *prometheus.Desc
+	netdevPrioPacketsDesc     *prometheus.Desc
 	netdevDevOutOfBufferDesc  *prometheus.Desc
 	netdevRxOutOfBufferDesc   *prometheus.Desc
 	netdevRxDiscardsPhyDesc   *prometheus.Desc
@@ -624,6 +626,16 @@ func New(provider Provider, logger *slog.Logger, opts ...Option) *RdmaCollector 
 			[]string{"device", "port", "netdev", "priority"},
 			nil,
 		),
+		netdevPrioBytesDesc: prometheus.NewDesc(
+			"rdma_netdev_prio_bytes_total",
+			"Physical port bytes per L2 priority (0-7), including Ethernet and RoCE traffic. Ethtool rx_prio[p]_bytes or tx_prio[p]_bytes; not a per-queue or RDMA-only counter.",
+			[]string{"device", "port", "netdev", "direction", "priority"}, nil,
+		),
+		netdevPrioPacketsDesc: prometheus.NewDesc(
+			"rdma_netdev_prio_packets_total",
+			"Physical port packets per L2 priority (0-7), including Ethernet and RoCE traffic. Ethtool rx_prio[p]_packets or tx_prio[p]_packets; not a per-queue or RDMA-only counter.",
+			[]string{"device", "port", "netdev", "direction", "priority"}, nil,
+		),
 		netdevDevOutOfBufferDesc: prometheus.NewDesc(
 			"rdma_netdev_dev_out_of_buffer_total",
 			"Number of times a device-owned queue lacked receive buffers. Ethtool dev_out_of_buffer; distinct from the sysfs QP WQE counter out_of_buffer.",
@@ -988,6 +1000,8 @@ func (c *RdmaCollector) Describe(ch chan<- *prometheus.Desc) {
 		ch <- c.netdevPrioCongDiscardDesc
 		ch <- c.netdevPrioDiscardsDesc
 		ch <- c.netdevPrioECNMarkedDesc
+		ch <- c.netdevPrioBytesDesc
+		ch <- c.netdevPrioPacketsDesc
 		ch <- c.netdevDevOutOfBufferDesc
 		ch <- c.netdevRxOutOfBufferDesc
 		ch <- c.netdevRxDiscardsPhyDesc

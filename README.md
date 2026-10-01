@@ -1,5 +1,33 @@
 # Prometheus RDMA Exporter
 
+## 按二层优先级统计的端口流量
+
+复用默认开启的 `--collector.ethtool`，映射 `rx_prio[0-7]_{bytes,packets}`、`tx_prio[0-7]_{bytes,packets}`：
+
+| 指标 | 标签 | 含义 |
+| --- | --- | --- |
+| `rdma_netdev_prio_bytes_total` | `device,port,netdev,direction,priority` | 按方向及二层优先级统计的累计字节数 |
+| `rdma_netdev_prio_packets_total` | 同上 | 按方向及二层优先级统计的累计包数 |
+
+`direction` 为 `rx` / `tx`，`priority` 为 `0`–`7`。这些是物理端口按二层优先级的流量，
+不是硬件队列编号，也不是 RDMA 专属或 PFC pause 计数器；包括 Ethernet/RoCE 流量。
+口径见 [Linux mlx5 文档](https://docs.kernel.org/networking/device_drivers/ethernet/mellanox/mlx5/counters.html#priority-port-counters)。
+沿用现有 Ethernet、非已识别 PCI VF 的采集条件，每个 netdev 只读取、导出一次。
+只导出驱动实际返回的字段，缺失不补零，实际返回零则正常导出；全部字段存在时每个 netdev 新增 32 条序列。
+关闭 ethtool 时这两组指标同时关闭，无新增命令或依赖。
+
+示例值仅说明格式：
+
+```prometheus
+rdma_netdev_prio_bytes_total{device="mlx5_0",port="1",netdev="reth0",direction="rx",priority="3"} 123456
+rdma_netdev_prio_bytes_total{device="mlx5_0",port="1",netdev="reth0",direction="tx",priority="3"} 234567
+rdma_netdev_prio_packets_total{device="mlx5_0",port="1",netdev="reth0",direction="rx",priority="3"} 1000
+rdma_netdev_prio_packets_total{device="mlx5_0",port="1",netdev="reth0",direction="tx",priority="3"} 2000
+```
+
+字节速率使用 `rate(rdma_netdev_prio_bytes_total[5m])`（B/s），乘以 8 得到 bit/s；包速率使用 `rate(rdma_netdev_prio_packets_total[5m])`。
+不要与 sysfs、QP 或 vport RDMA 计数器相加，也不要跨不同 netdev 汇总后假定对应不同物理端口。
+
 ## RDMA 运维元数据
 
 默认新增以下只读指标，独立于 ethtool 开关：

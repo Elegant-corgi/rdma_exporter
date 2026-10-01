@@ -12,6 +12,7 @@ import (
 )
 
 var (
+	netdevPrioTrafficPattern       = regexp.MustCompile(`^(rx|tx)_prio([0-7])_(bytes|packets)$`)
 	netdevPrioStatPattern          = regexp.MustCompile(`^rx_prio([0-7])_(buf_discard|cong_discard|discards|marked)$`)
 	pciStallPercentPattern         = regexp.MustCompile(`^outbound_pci_stalled_(rd|wr)$`)
 	pciStallSecondsPattern         = regexp.MustCompile(`^outbound_pci_stalled_(rd|wr)_events$`)
@@ -34,6 +35,14 @@ func (c *RdmaCollector) emitNetDevHWMetrics(
 ) {
 	for _, name := range sortedKeys(stats) {
 		value := float64(stats[name])
+		if matches := netdevPrioTrafficPattern.FindStringSubmatch(name); matches != nil {
+			desc := c.netdevPrioBytesDesc
+			if matches[3] == "packets" {
+				desc = c.netdevPrioPacketsDesc
+			}
+			ch <- prometheus.MustNewConstMetric(desc, prometheus.CounterValue, value, deviceName, portID, netDev, matches[1], matches[2])
+			continue
+		}
 		if matches := netdevPrioStatPattern.FindStringSubmatch(name); matches != nil {
 			desc := c.netdevPrioDesc(matches[2])
 			if desc == nil {
