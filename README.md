@@ -265,6 +265,30 @@ rate(rdma_roce_pfc_pause_duration_total[$interval]) / 1e6
 
 ### Netdev hardware counters
 
+`rdma_netdev_phy_bytes_total{device,port,netdev,direction}` 导出物理端口累计收发字节数：
+`direction="rx"` 来自 ethtool `rx_bytes_phy`，`direction="tx"` 来自 `tx_bytes_phy`。
+统计范围包含 RDMA 和其他以太网流量，是物理端口总量，不按 priority、单播/多播或 function vPort 拆分。
+它与 vPort、priority 指标存在覆盖关系，不应相加。`rx_bits_phy` 是 BER/FEC 参考计数器，不能替代此流量计数器。
+复用现有 ethtool Stats dump 和每 netdev 去重规则，遵守 `--collector.ethtool` 开关及 Ethernet/VF 过滤；
+不受 vPort RDMA 专用的 SR-IOV 省略条件限制。缺失方向省略，真实零值导出，不增加命令或后台轮询。
+
+`/metrics` 示例（数值为示意累计字节数）：
+
+```prometheus
+# HELP rdma_netdev_phy_bytes_total Physical port bytes received or transmitted, including Ethernet and RDMA traffic. Ethtool rx_bytes_phy or tx_bytes_phy; not RDMA-only or per-priority.
+# TYPE rdma_netdev_phy_bytes_total counter
+rdma_netdev_phy_bytes_total{device="mlx5_0",port="1",netdev="reth0",direction="rx"} 123456789
+rdma_netdev_phy_bytes_total{device="mlx5_0",port="1",netdev="reth0",direction="tx"} 987654321
+```
+
+Grafana 查询物理端口收发带宽（Gbps），图例可使用 `{{instance}} {{netdev}} {{direction}}`：
+
+```promql
+rate(rdma_netdev_phy_bytes_total{netdev="reth0"}[$__rate_interval]) * 8 / 1e9
+```
+
+多节点环境使用 instance 筛选目标节点；刷新粒度取决于 scrape 间隔。
+
 These families ship with `--collector.ethtool` (default on). Disable with `--no-collector.ethtool`. They are mlx5 netdev/device statistics correlated to an RDMA port via `netdev`; they are not RoCE-only.
 
 - Buffer/drop: `rdma_netdev_prio_buf_discard_total`, `rdma_netdev_prio_cong_discard_total`, `rdma_netdev_prio_discards_total`, `rdma_netdev_prio_ecn_marked_total`, `rdma_netdev_dev_out_of_buffer_total`, `rdma_netdev_rx_out_of_buffer_total`, `rdma_netdev_rx_discards_phy_total`. Distinct from the sysfs QP WQE counter `rdma_out_of_buffer_total`.

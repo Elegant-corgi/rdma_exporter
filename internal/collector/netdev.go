@@ -35,6 +35,11 @@ func (c *RdmaCollector) emitNetDevHWMetrics(
 ) {
 	for _, name := range sortedKeys(stats) {
 		value := float64(stats[name])
+		if name == "rx_bytes_phy" || name == "tx_bytes_phy" {
+			direction := strings.TrimSuffix(name, "_bytes_phy")
+			ch <- prometheus.MustNewConstMetric(c.netdevPhyBytesDesc, prometheus.CounterValue, value, deviceName, portID, netDev, direction)
+			continue
+		}
 		if matches := netdevPrioTrafficPattern.FindStringSubmatch(name); matches != nil {
 			desc := c.netdevPrioBytesDesc
 			if matches[3] == "packets" {
