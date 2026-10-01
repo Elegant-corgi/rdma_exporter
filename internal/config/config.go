@@ -53,6 +53,7 @@ func logParseError(err error) error {
 
 // Config captures runtime configuration options.
 type Config struct {
+	CollectorPortMTU          bool
 	ListenAddress             string
 	MetricsPath               string
 	HealthPath                string
@@ -110,6 +111,11 @@ func Parse(args []string) (Config, error) {
 		"Enable live auto-type QP counters via NETLINK_RDMA GET/DUMP. Off by default because the dump can exhaust the scrape timeout on dense hosts. The exporter never binds QPs or enables auto mode; use rdma statistic qp set.")
 
 	timeoutDefault := defaultTimeout
+	collectorPortMTU, err := boolEnvOrDefault("RDMA_EXPORTER_COLLECTOR_PORT_MTU", true)
+	if err != nil {
+		return cfg, logParseError(err)
+	}
+	registerCollectorFlag(fs, "port-mtu", &collectorPortMTU, "查询 RDMA 端口 active_mtu（需要 ibv_devinfo）；使用 --no-collector.port-mtu 关闭。")
 	if envTimeout := os.Getenv("RDMA_EXPORTER_SCRAPE_TIMEOUT"); envTimeout != "" {
 		parsed, err := time.ParseDuration(envTimeout)
 		if err != nil {
@@ -133,6 +139,7 @@ func Parse(args []string) (Config, error) {
 	}
 
 	cfg = Config{
+		CollectorPortMTU:          collectorPortMTU,
 		ListenAddress:             *listen,
 		MetricsPath:               *metricsPath,
 		HealthPath:                *healthPath,

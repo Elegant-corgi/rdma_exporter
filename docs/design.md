@@ -2,6 +2,28 @@
 
 This document covers the sysfs-based `rdma_exporter`.
 
+## RDMA 运维元数据扩展
+
+`internal/rdma.Provider.Devices(ctx)` 保持原签名，设备快照新增固件和驱动模块版本、关联网络接口及可选 MTU，端口新增完整有效 GID 列表。
+所有 sysfs 元数据遵守自定义根路径；版本去除首尾空白，模块从设备 driver/module 关联确定。
+每次快照内缓存网卡 MTU 和模块版本，避免重复读取，但不跨 scrape 缓存数值。
+GID 按数字 index 排序，先验证并过滤全零值，再读取属性，避免空槽位的 EINVAL；有效 GID 的缺失属性为空。
+新字段异常局部处理并记录设备、端口、路径，保持已有计数器采集和 port_info 映射规则。
+
+Collector 用 const metrics 导出 `rdma_device_info`、`rdma_driver_info`、`rdma_gid_info` 和 `rdma_netdev_mtu_bytes`，驱动、网卡按自身粒度去重。
+GID 统一为八组小写十六进制，仅 IPv4-mapped 地址带派生 ipv4 标签；变化后不继续导出旧条目。
+
+`internal/portmtu` 提供可注入 runner 的 `MTUs(ctx, device)` 查询，Linux 启动时定位 `ibv_devinfo`；其他平台明确返回 unsupported。
+默认开启的 `--collector.port-mtu` / `RDMA_EXPORTER_COLLECTOR_PORT_MTU` 控制查询，`--no-collector.port-mtu` 关闭；与 ethtool 无关。
+使用无 shell 的 `ibv_devinfo -d <device>`、LC_ALL=C、每设备最多 1 秒和共享 scrape deadline；输出限制 64 KiB，超限取消子进程。
+命令失败或解析失败不采用部分结果；仅匹配当前快照端口。工具缺失启动警告一次，停用查询而不中断其他采集。
+sysfs 元数据先导出，随后顺序查询未排除且有端口的设备，输出 `rdma_port_active_mtu_bytes`；
+实际失败每设备递增 `rdma_port_mtu_scrape_errors_total`，日志包含 device、duration。
+active_mtu 是端口属性，不是网卡 MTU，也不代表具体 QP 的路径 MTU；不新增 max_mtu 指标。
+
+保持 CGO_ENABLED=0 和现有发布配置，镜像不附带命令或 verbs 运行依赖。容器部署者须提供工具、其依赖和 RDMA 设备访问；
+自定义 sysfs 根路径只作用于文件采集，不改变命令所处设备命名空间。完整标签和 /metrics 示例见 README 的运维元数据章节。
+
 ## 1. Background and Goals
 High-performance computing clusters and low-latency trading platforms increasingly rely on RDMA-capable network adapters to reduce CPU overhead and latency. Operators need continuous visibility into link health, error counters, and configuration drift. `rdma_exporter` collects RDMA NIC statistics from Linux hosts and exposes them as Prometheus metrics, providing the following goals:
 

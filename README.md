@@ -1,5 +1,48 @@
 # Prometheus RDMA Exporter
 
+## RDMA 运维元数据
+
+默认新增以下只读指标，独立于 ethtool 开关：
+
+| 指标 | 标签 | 含义 |
+| --- | --- | --- |
+| `rdma_netdev_mtu_bytes` | `netdev` | 关联网络接口的 MTU，单位字节，同一网卡只导出一次 |
+| `rdma_port_active_mtu_bytes` | `device,port` | 当前 RDMA 端口 active_mtu，单位字节，不等同于网卡 MTU或具体 QP 的路径 MTU |
+| `rdma_device_info` | `device,firmware_version` | HCA 固件版本，值为 1 |
+| `rdma_driver_info` | `driver,version` | 实际关联驱动的模块版本，值为 1，按驱动和版本去重 |
+| `rdma_gid_info` | `device,port,gid_index,gid,gid_type,netdev,ipv4` | 每个有效 GID 表项，值为 1 |
+| `rdma_port_mtu_scrape_errors_total` | 无 | 执行或解析失败的设备 MTU 查询累计次数 |
+
+GID 使用小写完整 IPv6 格式，保留 sysfs 类型原文；相同 GID 的 v1/v2 和不同 index 分别导出。
+`ipv4` 仅从 IPv4-mapped GID 派生，其他 GID 的该标签为空。全零槽位过滤；有效 GID 的类型或网卡属性缺失时对应标签为空。
+网卡 MTU、固件、驱动和 GID 来自 `--sysfs-root` 指定的 sysfs；缺失或无效字段省略，不填零、不使用旧值。
+现有 `rdma_port_info` 的 netdev 选择规则和标签保持不变。地址变化会产生新的 GID 时间序列，旧表项不再导出。
+
+端口 MTU 默认通过 `ibv_devinfo -d <device>` 查询，需要工具在 PATH 中。
+可使用 `--no-collector.port-mtu` 或 `--collector.port-mtu=false` 关闭；环境变量为
+`RDMA_EXPORTER_COLLECTOR_PORT_MTU`（默认 `true`），CLI 优先、最后显式开关生效。
+工具缺失时启动警告一次并停用该查询，其余指标继续采集；安装工具后需要重启 exporter。
+查询按设备顺序执行，每设备最多 1 秒并遵守剩余 scrape 时间，输出最多 64 KiB；失败设备的 MTU 不导出。
+被排除的设备不执行查询。该命令访问当前运行环境的 RDMA 设备，`--sysfs-root` 不重定向它；只导出 sysfs 快照中存在的端口。
+
+保持无 CGO 静态构建。现有发布镜像没有 `ibv_devinfo`，容器若需要 active_mtu，须自行提供该工具、
+libibverbs/provider 等运行依赖和匹配的 RDMA 设备访问权限（通常包括 `/dev/infiniband`），同时保证 sysfs 可读。
+不需要 exporter 修改统计状态、创建或绑定 QP。本功能不自动调整镜像、systemd 或设备权限。
+
+现场样例 `/metrics`（展示 mlx5_8 的部分表项）：
+
+```prometheus
+rdma_netdev_mtu_bytes{netdev="reth8"} 1500
+rdma_port_active_mtu_bytes{device="mlx5_8",port="1"} 1024
+rdma_device_info{device="mlx5_8",firmware_version="20.42.1000"} 1
+rdma_driver_info{driver="mlx5_core",version="23.10-2.1.3"} 1
+rdma_gid_info{device="mlx5_8",port="1",gid_index="0",gid="fe80:0000:0000:0000:5aa2:e1ff:fe3d:2346",gid_type="IB/RoCE v1",netdev="reth8",ipv4=""} 1
+rdma_gid_info{device="mlx5_8",port="1",gid_index="3",gid="0000:0000:0000:0000:0000:ffff:6445:2519",gid_type="RoCE v2",netdev="reth8",ipv4="100.69.37.25"} 1
+rdma_port_mtu_scrape_errors_total 0
+```
+
+本次现场九设备样例预期新增 64 条业务时间序列：9 网卡 MTU + 9 端口 MTU + 9 固件 + 1 驱动 + 36 GID，不含错误计数器。
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/yuuki/rdma_exporter/actions/workflows/ci.yml/badge.svg)](https://github.com/yuuki/rdma_exporter/actions/workflows/ci.yml)
 [![GitHub release](https://img.shields.io/github/v/release/yuuki/rdma_exporter)](https://github.com/yuuki/rdma_exporter/releases)

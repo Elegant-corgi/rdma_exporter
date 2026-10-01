@@ -50,6 +50,7 @@ type Option func(*RdmaCollector)
 
 // RdmaCollector implements prometheus.Collector for RDMA device metrics.
 type RdmaCollector struct {
+	metadata metadataMetrics
 	provider Provider
 	logger   *slog.Logger
 
@@ -822,6 +823,7 @@ func New(provider Provider, logger *slog.Logger, opts ...Option) *RdmaCollector 
 		}
 	}
 
+	c.initMetadataMetrics()
 	c.storeContext(context.Background())
 
 	return c
@@ -971,6 +973,7 @@ func isUnsupportedEthtool(err error) bool {
 
 // Describe implements prometheus.Collector.
 func (c *RdmaCollector) Describe(ch chan<- *prometheus.Desc) {
+	c.describeMetadata(ch)
 	ch <- c.portInfoDesc
 	ch <- c.lifespanMillisecondsDesc
 	c.scrapeErrors.Describe(ch)
@@ -1178,11 +1181,15 @@ func (c *RdmaCollector) Collect(ch chan<- prometheus.Metric) {
 		}
 	}
 
+	c.collectMetadata(ctx, ch, devices)
 	c.emitCollectorSuccess(ch, ethtoolOK, optionalOK, qpOK)
 	c.collectErrorCounters(ch)
 }
 
 func (c *RdmaCollector) collectErrorCounters(ch chan<- prometheus.Metric) {
+	if c.metadata.enabled {
+		c.metadata.errors.Collect(ch)
+	}
 	c.scrapeErrors.Collect(ch)
 	if c.collectEthtool {
 		c.rocePFCScrapeErrors.Collect(ch)

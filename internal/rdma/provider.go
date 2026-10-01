@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -69,7 +70,11 @@ type Provider interface {
 
 // Device represents a single RDMA Host Channel Adapter.
 type Device struct {
-	Name string
+	Name            string
+	FirmwareVersion string
+	Driver          string
+	DriverVersion   string
+	NetDevs         []NetDev
 	// PCIAddr is the PCI bus address of this device (e.g. "0000:1a:00.1").
 	// Derived from the device symlink under /sys/class/infiniband/<dev>/device.
 	// Empty string when the symlink cannot be resolved.
@@ -89,6 +94,7 @@ type Device struct {
 
 // Port contains counters and metadata for a single HCA port.
 type Port struct {
+	GIDs       []GID
 	ID         int
 	Stats      map[string]uint64
 	HwStats    map[string]uint64
@@ -107,6 +113,7 @@ type PortAttributes struct {
 
 // SysfsProvider implements Provider backed by the node's sysfs.
 type SysfsProvider struct {
+	logger         *slog.Logger
 	mu             sync.RWMutex
 	sysfsRoot      string
 	excludeDevices map[string]bool
@@ -157,7 +164,14 @@ func (p *SysfsProvider) Devices(ctx context.Context) ([]Device, error) {
 		return nil, ctx.Err()
 	}
 
-	return p.devicesFromRoot(ctx, root)
+	devices, err := p.devicesFromRoot(ctx, root)
+	if err != nil {
+		return nil, err
+	}
+	if err := p.readMetadata(ctx, root, devices); err != nil {
+		return nil, err
+	}
+	return devices, nil
 }
 
 func (p *SysfsProvider) deviceFromRoot(ctx context.Context, root, deviceName string) (Device, error) {

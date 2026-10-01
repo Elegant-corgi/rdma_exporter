@@ -18,6 +18,7 @@ import (
 	"github.com/yuuki/rdma_exporter/internal/collector"
 	"github.com/yuuki/rdma_exporter/internal/config"
 	"github.com/yuuki/rdma_exporter/internal/netdev"
+	"github.com/yuuki/rdma_exporter/internal/portmtu"
 	"github.com/yuuki/rdma_exporter/internal/rdma"
 	"github.com/yuuki/rdma_exporter/internal/rdmanl"
 	"github.com/yuuki/rdma_exporter/internal/server"
@@ -53,9 +54,11 @@ func main() {
 		"collector_ethtool", cfg.CollectorEthtool,
 		"collector_optional_counters", cfg.CollectorOptionalCounters,
 		"collector_qp_counters", cfg.CollectorQPCounters,
+		"collector_port_mtu", cfg.CollectorPortMTU,
 	)
 
 	provider := rdma.NewSysfsProvider()
+	provider.SetLogger(logger)
 	if cfg.SysfsRoot != "" {
 		provider.SetSysfsRoot(cfg.SysfsRoot)
 	}
@@ -65,6 +68,15 @@ func main() {
 	}
 
 	collectorOpts := make([]collector.Option, 0, 5)
+	if cfg.CollectorPortMTU {
+		collectorOpts = append(collectorOpts, collector.WithPortMTUProvider(nil))
+		mtuProvider, err := portmtu.New()
+		if err != nil {
+			logger.Warn("端口 MTU 查询不可用，其余采集保持启用", "err", err)
+		} else {
+			collectorOpts = append(collectorOpts, collector.WithPortMTUProvider(mtuProvider))
+		}
+	}
 	var ethtoolProvider *netdev.EthtoolStatsProvider
 	if cfg.CollectorEthtool {
 		collectorOpts = append(collectorOpts, collector.WithEthtoolCollector())
