@@ -200,11 +200,54 @@ Every CLI flag has an equivalent environment variable. Environment values provid
 | `--collector.ethtool`             | `RDMA_EXPORTER_COLLECTOR_ETHTOOL`             | `true`     | RoCEv2 PFC and netdev hardware ethtool families (buffer/PCIe/PHY, IEEE 802.3x pause, pause storm, vport RDMA). Disable with `--no-collector.ethtool`.            |
 | `--collector.optional-counters`   | `RDMA_EXPORTER_COLLECTOR_OPTIONAL_COUNTERS`   | `true`     | Optional RDMA hardware counters (mlx5 `cc_*` and `rdma_{rx,tx}_{bytes,packets}`) via NETLINK_RDMA. The exporter never turns counters on. Disable with `--no-collector.optional-counters`. |
 | `--collector.qp-counters`         | `RDMA_EXPORTER_COLLECTOR_QP_COUNTERS`         | `false`    | Live auto-type QP counters (Linux only, separate NETLINK_RDMA socket). Off by default: the dump can blow the scrape timeout on dense hosts. The exporter never binds QPs or enables auto mode. |
+| `--collector.port-mtu`            | `RDMA_EXPORTER_COLLECTOR_PORT_MTU`            | `true`     | 通过 `ibv_devinfo` 查询端口 active_mtu；使用 `--no-collector.port-mtu` 关闭，独立于 ethtool。工具缺失时停用查询，其余采集继续。 |
 | `--exclude-devices`               | `RDMA_EXPORTER_EXCLUDE_DEVICES`               | ``         | Comma-separated list of RDMA devices to exclude (e.g., `mlx5_0,mlx5_1`)                                                                                          |
 
 Last explicit CLI flag wins (so systemd drop-ins can append `--no-collector.ethtool`). `--collector.X=false` is equivalent to `--no-collector.X`. `--help` / `--version` still work if leftover `RDMA_EXPORTER_ENABLE_*` is set; a normal start refuses those variables with a rename message (`RDMA_EXPORTER_ENABLE_ROCE_PFC_METRICS`, `RDMA_EXPORTER_ENABLE_NETDEV_HW_METRICS`, `RDMA_EXPORTER_ENABLE_RDMA_OPTIONAL_COUNTERS`, `RDMA_EXPORTER_ENABLE_RDMA_QP_COUNTERS`). The matching `--enable-*` flags are also rejected.
 
 ## Metrics
+
+### 当前支持的指标分类
+
+以下按当前 collector 实现汇总，具体指标名、标签和口径见本节及前面的运维元数据、优先级流量章节。
+支持某个指标不意味着每个节点都会导出：设备、驱动、collector 开关和硬件计数器状态决定实际可用性；缺失硬件字段不补零。
+
+| 分类 | 指标或指标族 | 类型与采集条件 |
+| --- | --- | --- |
+| sysfs 端口及硬件计数器 | `rdma_<counter>_total` | Counter，默认读取 `counters/` 与 `hw_counters/` 中可用的计数器，标签为 `device,port` |
+| 硬件更新周期 | `rdma_lifespan_milliseconds` | Gauge，毫秒；独立于累计计数器 |
+| 端口信息 | `rdma_port_info` | Gauge，值为 1，包含端口状态、链路、网卡和 PCI/VF 信息标签 |
+| 固件、驱动及 GID | `rdma_device_info`、`rdma_driver_info`、`rdma_gid_info` | Gauge，值为 1；默认读取 sysfs，缺失元数据省略 |
+| MTU | `rdma_netdev_mtu_bytes`、`rdma_port_active_mtu_bytes` | Gauge，字节；网卡 MTU 来自 sysfs，端口 active_mtu 由 `--collector.port-mtu` 控制并依赖 `ibv_devinfo` |
+| 物理端口与优先级流量 | `rdma_netdev_phy_bytes_total`、`rdma_netdev_prio_bytes_total`、`rdma_netdev_prio_packets_total` | Counter，字节或包；`--collector.ethtool` 默认开启 |
+| PFC | `rdma_roce_pfc_pause_frames_total`、`rdma_roce_pfc_pause_duration_total`、`rdma_roce_pfc_pause_transitions_total` | Counter；帧、微秒或状态转换次数；依赖 ethtool |
+| 缓冲区、丢包和 ECN | `rdma_netdev_prio_buf_discard_total`、`rdma_netdev_prio_cong_discard_total`、`rdma_netdev_prio_discards_total`、`rdma_netdev_prio_ecn_marked_total`、`rdma_netdev_dev_out_of_buffer_total`、`rdma_netdev_rx_out_of_buffer_total`、`rdma_netdev_rx_discards_phy_total` | Counter，依赖 ethtool |
+| PCIe 与 PHY/FEC | `rdma_pcie_*`、`rdma_phy_*` | PCIe stalled percent 为 Gauge，其余为 Counter；依赖 ethtool |
+| 全局 pause、pause storm 与 vPort RDMA | `rdma_netdev_global_pause_*`、`rdma_netdev_pause_storm_events_total`、`rdma_netdev_vport_rdma_*` | Counter，依赖 ethtool；全局 pause 及 vPort 另有下述硬件条件 |
+| 可选硬件计数器 | `rdma_optional_counter_enabled`、`rdma_cc_*_total`、`rdma_optional_{rx,tx}_{bytes,packets}_total` | enabled 为 Gauge，其余为 Counter；`--collector.optional-counters` 默认开启，值仅在计数器已启用且读到时导出 |
+| QP 计数器 | `rdma_qp_counter_mode`、`rdma_qp_auto_mask`、`rdma_qp_scrape_status`、`rdma_qp_<name>_total` | 前三项为 Gauge，累计值为 Counter；`--collector.qp-counters` 默认关闭，dump 要求 auto type-only 模式 |
+| 采集状态与错误 | `rdma_scrape_collector_success`、`rdma_scrape_errors_total`、`rdma_roce_pfc_scrape_errors_total`、`rdma_netdev_scrape_errors_total`、`rdma_optional_counter_scrape_errors_total`、`rdma_qp_scrape_errors_total`、`rdma_port_mtu_scrape_errors_total` | success 为 Gauge，其余为 Counter；MTU 错误按失败的设备查询递增 |
+| exporter 自身 | `go_*`、`process_*`、`promhttp_metric_handler_requests_total`、`promhttp_metric_handler_requests_in_flight` | Go/process 默认注册；HTTP 请求 Counter 带 `code` 标签，正在处理的请求数为 Gauge |
+
+sysfs 指标根据实际文件动态生成，并非固定白名单；已知名称采用文档映射，未知名称统一小写并将非字母数字字符替换为下划线。
+`hw_counters/lifespan` 单独导出为 Gauge，不导出 `rdma_lifespan_total`。
+`rdma_port_rcv_data_total`、`rdma_port_xmit_data_total` 的单位是四字节字，不是字节；转换为 B/s 时使用 `rate(...[窗口]) * 4`。
+
+ethtool 指标公共标签为 `device,port,netdev`，附加标签如下：
+
+| 指标 | 附加标签 |
+| --- | --- |
+| PFC 三项 | `direction,priority`；transitions 只导出 `rx` |
+| 物理端口流量、全局 pause 帧数/时长、PCIe signal integrity | `direction`（`rx` / `tx`） |
+| 优先级流量 | `direction,priority`（priority 为 `0`–`7`） |
+| 优先级丢弃/ECN | `priority`，当前来自 rx 统计 |
+| PCIe stalled percent / seconds | `op`（`rd` / `wr`） |
+| PHY lane 错误 | `lane` |
+| pause storm | `severity`（`warning` / `error`） |
+| vPort RDMA | `direction,traffic`（traffic 为 `unicast` / `multicast`） |
+| 全局 pause transitions、普通缓冲区/丢包、PCIe overflow、其余 PHY | 无 |
+
+### 指标详情
 
 - `rdma_<counter>_total{device,port}` – Port and hardware counters aligned with NVIDIA documentation (e.g. `rdma_port_rcv_data_total`, `rdma_symbol_error_total`, `rdma_duplicate_request_total`).
 - `rdma_lifespan_milliseconds{device,port}` – Gauge of the sysfs `hw_counters/lifespan` update period in **milliseconds** (kernel default 10, writable range 0–10000). Not a cumulative counter; do not `rate()` it. Replaces the former mis-typed `rdma_lifespan_total`. The exporter does not write this file.
@@ -294,7 +337,7 @@ These families ship with `--collector.ethtool` (default on). Disable with `--no-
 - Buffer/drop: `rdma_netdev_prio_buf_discard_total`, `rdma_netdev_prio_cong_discard_total`, `rdma_netdev_prio_discards_total`, `rdma_netdev_prio_ecn_marked_total`, `rdma_netdev_dev_out_of_buffer_total`, `rdma_netdev_rx_out_of_buffer_total`, `rdma_netdev_rx_discards_phy_total`. Distinct from the sysfs QP WQE counter `rdma_out_of_buffer_total`.
 - PCIe: `rdma_pcie_outbound_stalled_percent` is a **gauge** of the last 1 second (kernel 0–100) and can miss stalls shorter than the scrape interval. Alert on `rate(rdma_pcie_outbound_stalled_seconds_total[$interval])`, the fraction of time stall exceeded 30%. Also `rdma_pcie_outbound_buffer_overflow_total` and `rdma_pcie_signal_integrity_total`.
 - PHY/FEC: `rdma_phy_rx_corrected_bits_total`, `rdma_phy_rx_pcs_symbol_err_total`, `rdma_phy_rx_bits_total`, `rdma_phy_rx_err_lane_total`, `rdma_phy_rx_crc_errors_total`, `rdma_phy_link_down_events_total`.
-- IEEE 802.3x global pause (not PFC; keys exist only when global pause mode is on): `rdma_netdev_global_pause_frames_total{device,port,netdev,direction}`, `rdma_netdev_global_pause_duration_total` (microseconds; occupancy is `rate()/1e6`), `rdma_netdev_global_pause_transitions_total` (mlx5 receive/`rx` only). Direction is observation only: `rx` means this NIC received a pause request (was asked to stop transmitting); `tx` means this NIC transmitted a pause request (asked the peer to stop). Do not treat as root cause.
+- IEEE 802.3x global pause (not PFC; keys exist only when global pause mode is on): `rdma_netdev_global_pause_frames_total{device,port,netdev,direction}`, `rdma_netdev_global_pause_duration_total` (microseconds; occupancy is `rate()/1e6`), `rdma_netdev_global_pause_transitions_total{device,port,netdev}` (仅统计接收侧转换，无 `direction` 标签). Direction is observation only: `rx` means this NIC received a pause request (was asked to stop transmitting); `tx` means this NIC transmitted a pause request (asked the peer to stop). Do not treat as root cause.
 - Pause storm: `rdma_netdev_pause_storm_events_total{device,port,netdev,severity}`. `warning` is stalled past a watermark; `error` is timeout and pause TX disabled (drops may have occurred). Observation only; do not assert root cause.
 - vPort RDMA: `rdma_netdev_vport_rdma_bytes_total` and `rdma_netdev_vport_rdma_packets_total` labeled `{device,port,netdev,direction,traffic}` from `{rx,tx}_vport_rdma_{unicast,multicast}_{bytes,packets}`. These are octets/packets steered to or from this netdev's function vport, not `*_phy` and not a sum of other function vports. Do not add them to sysfs `port_rcv_data` (doublewords) or `rdma_qp_{rx,tx}_{bytes,packets}_total`. Ethernet vport, loopback, and steer-miss keys are not exported. Series are omitted when the RDMA device is not a PCI BDF, when `/sys/bus/pci/devices/<bdf>/sriov_totalvfs` is absent (the file's value is ignored), when more than one Ethernet `(device,port)` shares the netdev, or when `phys_port_name` is a VF/SF/host-PF representor (`pf0vf1`, `c1pf0vf0`, `pf0hpf`). A missing `phys_port_name` does not omit. Host VFs with `physfn` still skip all ethtool families. `IsVF` stays fail-open: a BDF without `physfn` still gets PFC and other HW families.
 
@@ -335,6 +378,7 @@ GOCACHE=$(pwd)/.gocache GOMODCACHE=$(pwd)/.gomodcache go test ./...
 
 ## Deployment
 
+- Linux systemd 二进制路径为 `/usr/local/exporters/rdma_exporter/rdma_exporter`，监听 `:19879`，由 systemd 管理动态用户；无需目标节点安装 Go，安装步骤见 [部署说明](docs/deployment.md)。程序直接运行的默认端口仍为 `:9879`。
 - systemd unit files: [`deploy/systemd/rdma_exporter.service`](deploy/systemd/rdma_exporter.service), [`deploy/systemd/rdma-hardware-counters.service`](deploy/systemd/rdma-hardware-counters.service).
 - Hardware counter enablement (optional and QP auto mode): [`deploy/scripts/rdma-enable-hardware-counters.sh`](deploy/scripts/rdma-enable-hardware-counters.sh), [`deploy/systemd/rdma-hardware-counters.env.example`](deploy/systemd/rdma-hardware-counters.env.example), [`deploy/systemd/rdma_exporter-qp-counters.conf.example`](deploy/systemd/rdma_exporter-qp-counters.conf.example), [`deploy/udev/90-rdma-hardware-counters.rules`](deploy/udev/90-rdma-hardware-counters.rules).
 - A multi-stage Dockerfile lives at the repository root; see `docs/deployment.md` for build and run instructions.

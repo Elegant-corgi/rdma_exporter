@@ -6,13 +6,13 @@ import (
 	"testing"
 )
 
-func TestRDMAExporterService_ExecStartUsesBuiltInConfiguration(t *testing.T) {
+func TestRDMAExporterService_ExecStartUsesDeploymentPort(t *testing.T) {
 	service, err := os.ReadFile("rdma_exporter.service")
 	if err != nil {
 		t.Fatalf("read systemd service: %v", err)
 	}
 
-	const want = "ExecStart=/usr/local/bin/rdma_exporter"
+	const want = "ExecStart=/usr/local/exporters/rdma_exporter/rdma_exporter --listen-address=:19879"
 	var execStarts []string
 	for _, line := range strings.Split(string(service), "\n") {
 		line = strings.TrimSpace(line)

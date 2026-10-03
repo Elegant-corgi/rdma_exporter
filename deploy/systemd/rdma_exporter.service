@@ -5,10 +5,11 @@ Wants=network-online.target
 After=network-online.target
 
 [Service]
+DynamicUser=true
 User=rdma_exporter
 Group=rdma_exporter
 EnvironmentFile=-/etc/rdma_exporter.env
-ExecStart=/usr/local/bin/rdma_exporter
+ExecStart=/usr/local/exporters/rdma_exporter/rdma_exporter --listen-address=:19879
 Restart=on-failure
 RestartSec=5s
 StateDirectory=rdma_exporter
